@@ -121,28 +121,40 @@ async function fillStep1ContactInfo(page: Page) {
   await page.getByPlaceholder('email123@email.com').fill(INFO.email);
 }
 
+// USPS radio/checkbox inputs are display:none — force:true still fails.
+// The only reliable way is to call el.click() directly via evaluate().
+async function jsClick(page: Page, selector: string) {
+  await page.locator(selector).waitFor({ state: 'attached', timeout: 30_000 });
+  await page.locator(selector).evaluate((el: HTMLElement) => el.click());
+}
+
 async function fillStep2PickupPreferences(page: Page, onProgress: (s: string) => void) {
-  // USPS wraps labels in class="schedule-a-pickup-validation" which is CSS-hidden.
-  // Use state:'attached' (DOM presence) + force:true to bypass visibility checks.
+  // Dog question: id is on the <input>, label is CSS display:none
+  await jsClick(page, '#second-radio-verification');
 
-  // Wait for the "No dog" radio to appear in the DOM after Check Availability
-  await page.locator('#second-radio-verification').waitFor({ state: 'attached', timeout: 30_000 });
-  await page.locator('#second-radio-verification').click({ force: true });
-
-  // Step 2: Location of your packages — native <select>, works without force
+  // Step 2: Location of your packages — native <select> works normally
   await page.getByLabel('Location of your packages').waitFor({ state: 'attached', timeout: 15_000 });
   const locationEl = page.getByLabel('Location of your packages');
   try {
     await locationEl.selectOption('Front Door', { timeout: 5_000 });
   } catch {
-    await locationEl.click({ force: true });
-    await page.getByRole('option', { name: 'Front Door' }).click();
+    await locationEl.evaluate((el: HTMLSelectElement) => {
+      const opt = Array.from(el.options).find(o => o.text.includes('Front Door'));
+      if (opt) { el.value = opt.value; el.dispatchEvent(new Event('change', { bubbles: true })); }
+    });
   }
 
-  // Step 3: "Pick up during regular mail delivery." — also has a hidden label
-  await page.getByText('Pick up during regular mail delivery.')
-    .waitFor({ state: 'attached', timeout: 15_000 });
-  await page.getByText('Pick up during regular mail delivery.').first().click({ force: true });
+  // Step 3: "Pick up during regular mail delivery." radio — also display:none
+  // Find its <input> via the sibling label text, then js-click it
+  await page.locator('label').filter({ hasText: 'Pick up during regular mail delivery' })
+    .first().waitFor({ state: 'attached', timeout: 15_000 });
+  await page.evaluate(() => {
+    const label = Array.from(document.querySelectorAll('label'))
+      .find(l => l.textContent?.includes('Pick up during regular mail delivery'));
+    const id = label?.getAttribute('for');
+    const input = id ? document.getElementById(id) : label?.closest('label');
+    (input as HTMLElement)?.click();
+  });
 
   const date = getNextPickupDate();
   const m = date.getMonth() + 1;
