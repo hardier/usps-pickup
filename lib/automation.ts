@@ -122,27 +122,27 @@ async function fillStep1ContactInfo(page: Page) {
 }
 
 async function fillStep2PickupPreferences(page: Page, onProgress: (s: string) => void) {
-  // "Service Available" is in the DOM but CSS-hidden — wait for the dog
-  // question radio which is visibly rendered after Check Availability.
-  await page.getByText("No, there isn't a dog at this address.")
-    .waitFor({ state: 'visible', timeout: 30_000 });
-  await page.getByText("No, there isn't a dog at this address.").click();
+  // USPS wraps labels in class="schedule-a-pickup-validation" which is CSS-hidden.
+  // Use state:'attached' (DOM presence) + force:true to bypass visibility checks.
 
-  // Step 2: Location of your packages
-  await page.getByLabel('Location of your packages')
-    .waitFor({ state: 'visible', timeout: 15_000 });
+  // Wait for the "No dog" radio to appear in the DOM after Check Availability
+  await page.locator('#second-radio-verification').waitFor({ state: 'attached', timeout: 30_000 });
+  await page.locator('#second-radio-verification').click({ force: true });
+
+  // Step 2: Location of your packages — native <select>, works without force
+  await page.getByLabel('Location of your packages').waitFor({ state: 'attached', timeout: 15_000 });
   const locationEl = page.getByLabel('Location of your packages');
   try {
     await locationEl.selectOption('Front Door', { timeout: 5_000 });
   } catch {
-    await locationEl.click();
+    await locationEl.click({ force: true });
     await page.getByRole('option', { name: 'Front Door' }).click();
   }
 
-  // Step 3: Choose a Time — pick the free regular-delivery option
+  // Step 3: "Pick up during regular mail delivery." — also has a hidden label
   await page.getByText('Pick up during regular mail delivery.')
-    .waitFor({ state: 'visible', timeout: 15_000 });
-  await page.getByText('Pick up during regular mail delivery.').click();
+    .waitFor({ state: 'attached', timeout: 15_000 });
+  await page.getByText('Pick up during regular mail delivery.').first().click({ force: true });
 
   const date = getNextPickupDate();
   const m = date.getMonth() + 1;
