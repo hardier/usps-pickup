@@ -123,19 +123,33 @@ async function fillStep1ContactInfo(page: Page) {
 }
 
 async function fillStep2PickupPreferences(page: Page, onProgress: (s: string) => void) {
-  await page.waitForSelector(
-    '[id*="Dog"], [id*="dog"], label:has-text("dog"), :text("dog at this address")',
-    { timeout: 15_000 },
-  );
+  // After clicking "Check Availability" the page stays put and reveals
+  // "Service Available" inline — wait for that before touching anything else.
+  await page.getByText('Service Available').waitFor({ state: 'visible', timeout: 30_000 });
 
-  await page.click('label:has-text("No, there isn\'t a dog")');
+  // Dog question — exact label text from the live form
+  await page.getByText("No, there isn't a dog at this address.").click();
 
-  await page.selectOption(
-    'select[id*="ocation"], select[name*="location" i], select[id*="package" i]',
-    'Front Door',
-  );
+  // A "Continue" button may separate the dog section from Step 2
+  await clickButtonIfVisible(page, 'Continue');
 
-  await page.click('label:has-text("Pick up during regular mail delivery")');
+  // Step 2: Location of your packages
+  await page.getByText('Location of your packages').waitFor({ state: 'visible', timeout: 15_000 });
+
+  // Try native <select> first; fall back to custom-dropdown interaction
+  const locationEl = page.getByLabel('Location of your packages');
+  try {
+    await locationEl.selectOption('Front Door', { timeout: 5_000 });
+  } catch {
+    await locationEl.click();
+    await page.getByRole('option', { name: 'Front Door' }).click();
+  }
+
+  // "Pick up during regular mail delivery" — optional, may live in Step 3
+  await clickTextIfVisible(page, 'Pick up during regular mail delivery');
+
+  // Another "Continue" may lead to the calendar
+  await clickButtonIfVisible(page, 'Continue');
 
   const date = getNextPickupDate();
   const m = date.getMonth() + 1;
@@ -143,6 +157,20 @@ async function fillStep2PickupPreferences(page: Page, onProgress: (s: string) =>
   const y = date.getFullYear();
   onProgress(`Selecting pickup date: ${m}/${d}/${y}…`);
   await selectCalendarDate(page, date);
+}
+
+async function clickButtonIfVisible(page: Page, name: string) {
+  try {
+    const btn = page.getByRole('button', { name });
+    if (await btn.isVisible({ timeout: 2_000 })) await btn.click();
+  } catch { /* not present */ }
+}
+
+async function clickTextIfVisible(page: Page, text: string) {
+  try {
+    const el = page.getByText(text);
+    if (await el.isVisible({ timeout: 3_000 })) await el.click();
+  } catch { /* not present */ }
 }
 
 async function selectCalendarDate(page: Page, date: Date) {
