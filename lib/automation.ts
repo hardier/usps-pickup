@@ -8,7 +8,7 @@ const INFO = {
   city:      process.env.USPS_CITY       ?? 'Palo Alto',
   state:     process.env.USPS_STATE      ?? 'CA',
   zip:       process.env.USPS_ZIP        ?? '94306',
-  phone:     process.env.USPS_PHONE      ?? '6507855885',
+  phone:     process.env.USPS_PHONE      ?? '650-785-5885',
   email:     process.env.USPS_EMAIL      ?? 'erzhenlin@gmail.com',
 };
 
@@ -106,19 +106,20 @@ export async function schedulePickup(
 }
 
 async function fillStep1ContactInfo(page: Page) {
-  await page.waitForSelector('#firstName, input[name="firstName"]', { timeout: 15_000 });
+  // Wait using the visible placeholder text from the actual USPS form
+  await page.waitForSelector('input[placeholder="First"]', { timeout: 15_000 });
 
-  await page.fill('#firstName', INFO.firstName);
-  await page.fill('#lastName',  INFO.lastName);
-  await page.fill('#addLine1',  INFO.address);
-  await page.fill('#city',      INFO.city);
-  await page.selectOption(
-    'select#State, select[id*="state" i], select[name*="state" i]',
-    INFO.state,
-  );
-  await page.fill('#ZIP',   INFO.zip);
-  await page.fill('#aPNum', INFO.phone);
-  await page.fill('#eMail', INFO.email);
+  await page.getByPlaceholder('First').fill(INFO.firstName);
+  await page.getByPlaceholder('Last').fill(INFO.lastName);
+  await page.getByPlaceholder('123 Main Street').fill(INFO.address);
+  await page.getByPlaceholder('City').fill(INFO.city);
+
+  // State is the only <select> on this form
+  await page.locator('select').first().selectOption(INFO.state);
+
+  await page.getByPlaceholder('00000').fill(INFO.zip);
+  await page.getByPlaceholder('000-000-0000').fill(INFO.phone);
+  await page.getByPlaceholder('email123@email.com').fill(INFO.email);
 }
 
 async function fillStep2PickupPreferences(page: Page, onProgress: (s: string) => void) {
