@@ -66,9 +66,9 @@ export async function schedulePickup(
     await fillStep1ContactInfo(page);
 
     onProgress('Checking availability…');
-    await page.click(
-      'button:has-text("Check Availability"), input[value*="Check Availability"]',
-    );
+    // Wait for Angular validation to settle before clicking
+    await page.waitForLoadState('networkidle').catch(() => {});
+    await page.getByRole('button', { name: 'Check Availability' }).click();
 
     onProgress('Setting pickup preferences…');
     await fillStep2PickupPreferences(page, onProgress);
@@ -77,9 +77,8 @@ export async function schedulePickup(
     await fillStep4PackageDetails(page, packages, weight);
 
     onProgress('Submitting pickup request…');
-    await page.click(
-      'button:has-text("Schedule a Pickup"), input[value*="Schedule a Pickup"]',
-    );
+    await page.waitForLoadState('networkidle').catch(() => {});
+    await page.getByRole('button', { name: 'Schedule a Pickup' }).click();
 
     onProgress('Waiting for confirmation…');
     await page.waitForSelector(
