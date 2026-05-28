@@ -132,17 +132,16 @@ async function fillStep2PickupPreferences(page: Page, onProgress: (s: string) =>
   // Dog question: id is on the <input>, label is CSS display:none
   await jsClick(page, '#second-radio-verification');
 
-  // Step 2: Location of your packages — native <select> works normally
-  await page.getByLabel('Location of your packages').waitFor({ state: 'attached', timeout: 15_000 });
-  const locationEl = page.getByLabel('Location of your packages');
-  try {
-    await locationEl.selectOption('Front Door', { timeout: 5_000 });
-  } catch {
-    await locationEl.evaluate((el: HTMLSelectElement) => {
-      const opt = Array.from(el.options).find(o => o.text.includes('Front Door'));
-      if (opt) { el.value = opt.value; el.dispatchEvent(new Event('change', { bubbles: true })); }
-    });
-  }
+  // Step 2: Location of your packages
+  // The label is CSS display:none so getByLabel fails — wait for the Step 2
+  // heading (which IS visible), then pick the only <select> left on the page.
+  await page.getByText('Where will you leave your package').waitFor({ state: 'visible', timeout: 15_000 });
+  await page.locator('select').first().evaluate((el: HTMLSelectElement) => {
+    const opt = Array.from(el.options).find(o => o.text.includes('Front Door'));
+    if (!opt) throw new Error('Front Door option not found in location dropdown');
+    el.value = opt.value;
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  });
 
   // Step 3: "Pick up during regular mail delivery." radio — also display:none
   // Find its <input> via the sibling label text, then js-click it
