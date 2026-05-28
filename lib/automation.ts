@@ -137,16 +137,20 @@ async function fillStep2PickupPreferences(page: Page, onProgress: (s: string) =>
   // heading (which IS visible), then pick the only <select> left on the page.
   await page.getByText('Where will you leave your package').waitFor({ state: 'visible', timeout: 15_000 });
 
-  // Debug: log all available options so we can see the exact text values
-  const locationOptions = await page.locator('select').first()
-    .evaluate((el: HTMLSelectElement) => Array.from(el.options).map(o => `"${o.text}"`));
-  onProgress(`DEBUG location options: [${locationOptions.join(', ')}]`);
-
-  await page.locator('select').first().evaluate((el: HTMLSelectElement) => {
-    const opt = Array.from(el.options).find(o => o.text.includes('Front Door'));
-    if (!opt) throw new Error(`Front Door not found. Options: ${Array.from(el.options).map(o => o.text).join(' | ')}`);
-    el.value = opt.value;
-    el.dispatchEvent(new Event('change', { bubbles: true }));
+  // The State <select> from Step 1 stays in the DOM (hidden) after availability
+  // check, so locator('select').first() grabs the wrong one. Search all selects
+  // for the one that contains a "Front Door" option.
+  await page.evaluate(() => {
+    for (const select of document.querySelectorAll('select')) {
+      const opt = Array.from((select as HTMLSelectElement).options)
+        .find(o => o.text.includes('Front Door'));
+      if (opt) {
+        (select as HTMLSelectElement).value = opt.value;
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+        return;
+      }
+    }
+    throw new Error('Front Door option not found in any <select> on the page');
   });
 
   // Step 3: "Pick up during regular mail delivery." radio — also display:none
