@@ -136,9 +136,15 @@ async function fillStep2PickupPreferences(page: Page, onProgress: (s: string) =>
   // The label is CSS display:none so getByLabel fails — wait for the Step 2
   // heading (which IS visible), then pick the only <select> left on the page.
   await page.getByText('Where will you leave your package').waitFor({ state: 'visible', timeout: 15_000 });
+
+  // Debug: log all available options so we can see the exact text values
+  const locationOptions = await page.locator('select').first()
+    .evaluate((el: HTMLSelectElement) => Array.from(el.options).map(o => `"${o.text}"`));
+  onProgress(`DEBUG location options: [${locationOptions.join(', ')}]`);
+
   await page.locator('select').first().evaluate((el: HTMLSelectElement) => {
     const opt = Array.from(el.options).find(o => o.text.includes('Front Door'));
-    if (!opt) throw new Error('Front Door option not found in location dropdown');
+    if (!opt) throw new Error(`Front Door not found. Options: ${Array.from(el.options).map(o => o.text).join(' | ')}`);
     el.value = opt.value;
     el.dispatchEvent(new Event('change', { bubbles: true }));
   });
