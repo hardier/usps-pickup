@@ -154,15 +154,19 @@ async function fillStep2PickupPreferences(page: Page, onProgress: (s: string) =>
   });
 
   // Step 3: "Pick up during regular mail delivery." radio — also display:none
-  // Find its <input> via the sibling label text, then js-click it
   await page.locator('label').filter({ hasText: 'Pick up during regular mail delivery' })
     .first().waitFor({ state: 'attached', timeout: 15_000 });
   await page.evaluate(() => {
     const label = Array.from(document.querySelectorAll('label'))
       .find(l => l.textContent?.includes('Pick up during regular mail delivery'));
     const id = label?.getAttribute('for');
-    const input = id ? document.getElementById(id) : label?.closest('label');
-    (input as HTMLElement)?.click();
+    const input = id ? document.getElementById(id) as HTMLInputElement : null;
+    if (!input) throw new Error('Pick up during regular mail delivery radio not found');
+    // Fire all events Angular might be watching
+    input.checked = true;
+    input.dispatchEvent(new Event('input',  { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    input.click();
   });
 
   const date = getNextPickupDate();
@@ -181,35 +185,39 @@ async function selectCalendarDate(page: Page, date: Date) {
   const mm = String(m).padStart(2, '0');
   const dd = String(d).padStart(2, '0');
 
-  await page.waitForSelector(
-    '[class*="calendar"], [id*="calendar"], table[role="grid"], [role="grid"]',
-    { timeout: 15_000 },
-  );
+  // Calendar wrapper is display:none like everything else — wait for DOM presence
+  await page.locator('.choose-day-calendar-wrapper').first()
+    .waitFor({ state: 'attached', timeout: 15_000 });
 
-  const candidates = [
-    `[aria-label="${m}/${d}/${y}"]`,
-    `[aria-label="${mm}/${dd}/${y}"]`,
-    `[data-date="${y}-${mm}-${dd}"]`,
-    `td[aria-label*="${d}"]:not([aria-disabled="true"]):not([class*="unavail"]):not([class*="disabled"])`,
-    `td:has-text("${d}"):not([aria-disabled="true"]):not([class*="unavail"]):not([class*="disabled"])`,
-  ];
+  const clicked = await page.evaluate(({ m, d, y, mm, dd }) => {
+    const dayStr = String(d);
 
-  for (const sel of candidates) {
-    try {
-      const el = page.locator(sel).first();
-      if (await el.isVisible({ timeout: 2_000 })) {
-        await el.click();
-        return;
-      }
-    } catch {
-      // try next
+    // Try aria-label with common date formats first
+    for (const fmt of [`${m}/${d}/${y}`, `${mm}/${dd}/${y}`, `${y}-${mm}-${dd}`]) {
+      const el = document.querySelector(`[aria-label="${fmt}"]`) as HTMLElement | null;
+      if (el) { el.click(); return `aria-label=${fmt}`; }
     }
-  }
 
-  throw new Error(
-    `Could not find date ${m}/${d}/${y} in the USPS calendar. ` +
-      'The date may be unavailable or the calendar layout has changed.',
-  );
+    // Walk all calendar wrappers and find a non-disabled cell matching the day number
+    for (const wrapper of document.querySelectorAll('.choose-day-calendar-wrapper')) {
+      for (const cell of wrapper.querySelectorAll('td, button, [role="gridcell"]')) {
+        if (cell.textContent?.trim() !== dayStr) continue;
+        if (cell.getAttribute('aria-disabled') === 'true') continue;
+        if (['disabled', 'unavailable', 'inactive'].some(c => cell.classList.contains(c))) continue;
+        (cell as HTMLElement).click();
+        return `cell text=${dayStr}`;
+      }
+    }
+
+    // Debug: return what cells are available
+    const cells = Array.from(document.querySelectorAll('.choose-day-calendar-wrapper td, .choose-day-calendar-wrapper button'))
+      .map(c => c.textContent?.trim()).filter(Boolean).slice(0, 20);
+    return `NOT_FOUND cells=[${cells.join(',')}]`;
+  }, { m, d, y, mm, dd });
+
+  if (!clicked || clicked.startsWith('NOT_FOUND')) {
+    throw new Error(`Could not click date ${m}/${d}/${y} in calendar. Debug: ${clicked}`);
+  }
 }
 
 async function fillStep4PackageDetails(page: Page, packages: number, weight: number) {
