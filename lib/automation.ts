@@ -239,40 +239,42 @@ async function fillStep4PackageDetails(page: Page, packages: number, weight: num
     .first();
   await weightInput.fill(String(weight));
 
-  // The hazmatErrorWrap overlay intercepts pointer events on the label,
-  // so dispatch a click event directly on the checkbox input instead.
+  // Hazmat is a RADIO button (not checkbox) — search input[type="radio"] only
   await page.evaluate(() => {
     const input =
-      (document.querySelector('input#hazmat-no') as HTMLInputElement) ??
-      (Array.from(document.querySelectorAll('input[type="checkbox"]')).find(
-        (el) => el.closest('label, div')?.textContent?.toLowerCase().includes('hazardous'),
-      ) as HTMLInputElement | undefined);
-    if (!input) throw new Error('Hazardous checkbox not found');
-    if (!input.checked) input.click();
-  });
-
-  await checkHiddenCheckbox(page, 'Terms & Conditions');
-}
-
-// Find a checkbox by label text and check it via browser-side JS,
-// bypassing display:none. Uses the label's `for` attr to find the input.
-async function checkHiddenCheckbox(page: Page, labelText: string) {
-  await page.locator('label').filter({ hasText: labelText })
-    .first().waitFor({ state: 'attached', timeout: 15_000 });
-
-  await page.evaluate((text) => {
-    const label = Array.from(document.querySelectorAll('label'))
-      .find(l => l.textContent?.includes(text));
-    if (!label) throw new Error(`Label not found: "${text}"`);
-    const id = label.getAttribute('for');
-    const input = (id
-      ? document.getElementById(id)
-      : label.querySelector('input[type="checkbox"]')
-    ) as HTMLInputElement | null;
-    if (!input) throw new Error(`Checkbox input not found for label: "${text}"`);
+      (document.querySelector('input#hazmat-no') as HTMLInputElement | null) ??
+      (Array.from(document.querySelectorAll('input[type="radio"]')).find(
+        (el) => el.closest('label, div')?.textContent?.toLowerCase().includes('do not contain'),
+      ) as HTMLInputElement | undefined) ?? null;
+    if (!input) throw new Error('Hazmat radio not found');
     input.checked = true;
-    input.dispatchEvent(new Event('input',  { bubbles: true }));
     input.dispatchEvent(new Event('change', { bubbles: true }));
     input.click();
-  }, labelText);
+  });
+
+  // Terms checkbox — the text lives in a <p>/<span> next to the input,
+  // NOT inside a <label>, so search any element for "I have read" + "Terms".
+  await page.locator('text=I have read').waitFor({ state: 'attached', timeout: 15_000 });
+  await page.evaluate(() => {
+    // Walk all elements; find one whose text includes "I have read" and "Terms"
+    for (const el of document.querySelectorAll('label, p, div, span, li')) {
+      const txt = el.textContent ?? '';
+      if (!txt.includes('I have read') || !txt.includes('Terms')) continue;
+      // Prefer label[for=...], else sibling or child checkbox
+      const forId = (el as HTMLLabelElement).htmlFor;
+      const input = (forId ? document.getElementById(forId) : null)
+        ?? el.querySelector('input[type="checkbox"]')
+        ?? el.parentElement?.querySelector('input[type="checkbox"]')
+        ?? el.previousElementSibling as Element | null;
+      if ((input as HTMLInputElement)?.type === 'checkbox') {
+        const cb = input as HTMLInputElement;
+        cb.checked = true;
+        cb.dispatchEvent(new Event('input',  { bubbles: true }));
+        cb.dispatchEvent(new Event('change', { bubbles: true }));
+        cb.click();
+        return;
+      }
+    }
+    throw new Error('Terms & Conditions checkbox not found');
+  });
 }
