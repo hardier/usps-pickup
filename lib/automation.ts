@@ -185,9 +185,20 @@ async function selectCalendarDate(page: Page, date: Date) {
   const mm = String(m).padStart(2, '0');
   const dd = String(d).padStart(2, '0');
 
-  // Calendar wrapper is display:none like everything else — wait for DOM presence
+  // Calendar wrapper appears immediately but Angular populates date cells async.
+  // Wait for the wrapper first, then wait for cells to actually be rendered.
   await page.locator('.choose-day-calendar-wrapper').first()
     .waitFor({ state: 'attached', timeout: 15_000 });
+
+  await page.waitForFunction(
+    () => document.querySelector(
+      '.choose-day-calendar-wrapper td, ' +
+      '.choose-day-calendar-wrapper button, ' +
+      '.choose-day-calendar-wrapper li, ' +
+      '.choose-day-calendar-wrapper [class*="day"]'
+    ) !== null,
+    { timeout: 15_000 },
+  );
 
   const clicked = await page.evaluate(({ m, d, y, mm, dd }) => {
     const dayStr = String(d);
@@ -199,8 +210,9 @@ async function selectCalendarDate(page: Page, date: Date) {
     }
 
     // Walk all calendar wrappers and find a non-disabled cell matching the day number
+    const cellSel = 'td, button, li, [role="gridcell"], [class*="day"], [class*="date"]';
     for (const wrapper of document.querySelectorAll('.choose-day-calendar-wrapper')) {
-      for (const cell of wrapper.querySelectorAll('td, button, [role="gridcell"]')) {
+      for (const cell of wrapper.querySelectorAll(cellSel)) {
         if (cell.textContent?.trim() !== dayStr) continue;
         if (cell.getAttribute('aria-disabled') === 'true') continue;
         if (['disabled', 'unavailable', 'inactive'].some(c => cell.classList.contains(c))) continue;
@@ -209,10 +221,11 @@ async function selectCalendarDate(page: Page, date: Date) {
       }
     }
 
-    // Debug: return what cells are available
-    const cells = Array.from(document.querySelectorAll('.choose-day-calendar-wrapper td, .choose-day-calendar-wrapper button'))
-      .map(c => c.textContent?.trim()).filter(Boolean).slice(0, 20);
-    return `NOT_FOUND cells=[${cells.join(',')}]`;
+    // Debug: show all child elements inside the wrapper
+    const children = Array.from(
+      document.querySelectorAll('.choose-day-calendar-wrapper *')
+    ).slice(0, 30).map(el => `<${el.tagName.toLowerCase()} class="${el.className}" text="${el.textContent?.trim().slice(0, 20)}">`);
+    return `NOT_FOUND children=[${children.join(', ')}]`;
   }, { m, d, y, mm, dd });
 
   if (!clicked || clicked.startsWith('NOT_FOUND')) {
@@ -236,10 +249,17 @@ async function fillStep4PackageDetails(page: Page, packages: number, weight: num
     .first();
   await weightInput.fill(String(weight));
 
-  await page.click(
-    'label:has-text("do not contain any Hazardous"), ' +
-    'input[type="checkbox"]:near(:text("do not contain any Hazardous"))',
-  );
+  // The hazmatErrorWrap overlay intercepts pointer events on the label,
+  // so dispatch a click event directly on the checkbox input instead.
+  await page.evaluate(() => {
+    const input =
+      (document.querySelector('input#hazmat-no') as HTMLInputElement) ??
+      (Array.from(document.querySelectorAll('input[type="checkbox"]')).find(
+        (el) => el.closest('label, div')?.textContent?.toLowerCase().includes('hazardous'),
+      ) as HTMLInputElement | undefined);
+    if (!input) throw new Error('Hazardous checkbox not found');
+    if (!input.checked) input.click();
+  });
 
   await page.click(
     'label:has-text("Terms & Conditions"), label:has-text("Terms and Conditions"), ' +
