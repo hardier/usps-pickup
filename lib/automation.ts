@@ -251,8 +251,28 @@ async function fillStep4PackageDetails(page: Page, packages: number, weight: num
     if (!input.checked) input.click();
   });
 
-  await page.click(
-    'label:has-text("Terms & Conditions"), label:has-text("Terms and Conditions"), ' +
-    'input[type="checkbox"]:near(:text("Terms"))',
-  );
+  await checkHiddenCheckbox(page, 'Terms & Conditions');
+}
+
+// Find a checkbox by label text and check it via browser-side JS,
+// bypassing display:none. Uses the label's `for` attr to find the input.
+async function checkHiddenCheckbox(page: Page, labelText: string) {
+  await page.locator('label').filter({ hasText: labelText })
+    .first().waitFor({ state: 'attached', timeout: 15_000 });
+
+  await page.evaluate((text) => {
+    const label = Array.from(document.querySelectorAll('label'))
+      .find(l => l.textContent?.includes(text));
+    if (!label) throw new Error(`Label not found: "${text}"`);
+    const id = label.getAttribute('for');
+    const input = (id
+      ? document.getElementById(id)
+      : label.querySelector('input[type="checkbox"]')
+    ) as HTMLInputElement | null;
+    if (!input) throw new Error(`Checkbox input not found for label: "${text}"`);
+    input.checked = true;
+    input.dispatchEvent(new Event('input',  { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    input.click();
+  }, labelText);
 }
