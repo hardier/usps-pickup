@@ -81,10 +81,21 @@ export async function schedulePickup(
     await page.getByRole('button', { name: 'Schedule a Pickup' }).click();
 
     onProgress('Waiting for confirmation…');
-    await page.waitForSelector(
-      'h1:has-text("Confirmed"), h2:has-text("Confirmed"), [class*="confirm"], [id*="confirm"]:not(input):not(button)',
-      { timeout: 30_000 },
-    );
+    // [class*="confirm"] matches back-modal-info-confirmation (hidden modal).
+    // Wait for visible success text in any heading or confirmation-number element.
+    await page.waitForFunction(() => {
+      for (const el of document.querySelectorAll('h1, h2, h3, h4, p, div')) {
+        const text = (el.textContent ?? '').toLowerCase();
+        if (
+          text.includes('pickup scheduled') ||
+          text.includes('pickup confirmed') ||
+          text.includes('has been scheduled') ||
+          text.includes('confirmation number') ||
+          text.includes('thank you')
+        ) return true;
+      }
+      return false;
+    }, { timeout: 30_000 });
 
     const bodyText = (await page.textContent('body')) ?? '';
     const match = bodyText.match(/confirmation\s*(?:#|number|no\.?)?\s*:?\s*([A-Z0-9]{6,})/i);
