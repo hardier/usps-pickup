@@ -185,19 +185,13 @@ async function selectCalendarDate(page: Page, date: Date) {
   const mm = String(m).padStart(2, '0');
   const dd = String(d).padStart(2, '0');
 
-  // Calendar wrapper appears immediately but Angular populates date cells async.
-  // Wait for the wrapper first, then wait for cells to actually be rendered.
-  await page.locator('.choose-day-calendar-wrapper').first()
-    .waitFor({ state: 'attached', timeout: 15_000 });
-
+  // Wait for ANY element on the page whose trimmed text is exactly the day number.
+  // This is stricter than [class*="day"] which matched non-date elements.
   await page.waitForFunction(
-    () => document.querySelector(
-      '.choose-day-calendar-wrapper td, ' +
-      '.choose-day-calendar-wrapper button, ' +
-      '.choose-day-calendar-wrapper li, ' +
-      '.choose-day-calendar-wrapper [class*="day"]'
-    ) !== null,
-    { timeout: 15_000 },
+    (dayStr) => Array.from(document.querySelectorAll('td, button, [role="gridcell"]'))
+      .some(el => el.textContent?.trim() === dayStr),
+    String(d),
+    { timeout: 20_000 },
   );
 
   const clicked = await page.evaluate(({ m, d, y, mm, dd }) => {
@@ -209,23 +203,19 @@ async function selectCalendarDate(page: Page, date: Date) {
       if (el) { el.click(); return `aria-label=${fmt}`; }
     }
 
-    // Walk all calendar wrappers and find a non-disabled cell matching the day number
-    const cellSel = 'td, button, li, [role="gridcell"], [class*="day"], [class*="date"]';
-    for (const wrapper of document.querySelectorAll('.choose-day-calendar-wrapper')) {
-      for (const cell of wrapper.querySelectorAll(cellSel)) {
-        if (cell.textContent?.trim() !== dayStr) continue;
-        if (cell.getAttribute('aria-disabled') === 'true') continue;
-        if (['disabled', 'unavailable', 'inactive'].some(c => cell.classList.contains(c))) continue;
-        (cell as HTMLElement).click();
-        return `cell text=${dayStr}`;
-      }
+    // Search the ENTIRE PAGE for a non-disabled cell matching the day number
+    for (const cell of document.querySelectorAll('td, button, [role="gridcell"]')) {
+      if (cell.textContent?.trim() !== dayStr) continue;
+      if (cell.getAttribute('aria-disabled') === 'true') continue;
+      if (['disabled', 'unavailable', 'inactive'].some(c => cell.classList.contains(c))) continue;
+      (cell as HTMLElement).click();
+      return `cell text=${dayStr} tag=${cell.tagName} class=${cell.className}`;
     }
 
-    // Debug: show all child elements inside the wrapper
-    const children = Array.from(
-      document.querySelectorAll('.choose-day-calendar-wrapper *')
-    ).slice(0, 30).map(el => `<${el.tagName.toLowerCase()} class="${el.className}" text="${el.textContent?.trim().slice(0, 20)}">`);
-    return `NOT_FOUND children=[${children.join(', ')}]`;
+    // Debug: show all td/button/gridcell elements on the page
+    const allCells = Array.from(document.querySelectorAll('td, button, [role="gridcell"]'))
+      .map(el => `<${el.tagName.toLowerCase()} class="${el.className}" text="${el.textContent?.trim().slice(0, 15)}">`);
+    return `NOT_FOUND page_cells=[${allCells.join(', ')}]`;
   }, { m, d, y, mm, dd });
 
   if (!clicked || clicked.startsWith('NOT_FOUND')) {
