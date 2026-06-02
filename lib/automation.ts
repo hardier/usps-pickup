@@ -90,20 +90,25 @@ export async function schedulePickup(
           text.includes('pickup scheduled') ||
           text.includes('pickup confirmed') ||
           text.includes('has been scheduled') ||
-          text.includes('confirmation number') ||
-          text.includes('thank you')
+          text.includes('thank you for')
         ) return true;
       }
       return false;
     }, { timeout: 30_000 });
+    console.log('[DEBUG] success waitForFunction resolved');
 
-    const bodyText = (await page.textContent('body')) ?? '';
+    // Extract visible text only — exclude <script> and <style> content
+    const visibleText = await page.evaluate(() => {
+      const clone = document.body.cloneNode(true) as HTMLElement;
+      clone.querySelectorAll('script, style, noscript').forEach(el => el.remove());
+      return clone.innerText ?? clone.textContent ?? '';
+    });
+    console.log('[DEBUG] visibleText (first 2000 chars):\n', visibleText.slice(0, 2000));
 
-    // Try multiple patterns — USPS uses formats like "Confirmation Number: GXG123456789"
-    // or purely numeric IDs, or "Confirmation #: 123456"
+    // No spaces in confirmation number — prevents matching validation error text
     const numberPatterns = [
-      /confirmation\s*(?:number|#|no\.?)\s*:?\s*([A-Z0-9][A-Z0-9\- ]{4,})/i,
-      /pickup\s*(?:number|id|#)\s*:?\s*([A-Z0-9][A-Z0-9\- ]{4,})/i,
+      /confirmation\s*(?:number|#|no\.?)\s*:?\s*([A-Z0-9][A-Z0-9\-]{4,})/i,
+      /pickup\s*(?:number|id|#)\s*:?\s*([A-Z0-9][A-Z0-9\-]{4,})/i,
       /(?:number|#|no\.?)\s*:?\s*([A-Z]{1,4}[0-9]{6,})/i,
       /\b([A-Z]{2,4}[0-9]{8,})\b/,   // e.g. GXG123456789
       /\b([0-9]{9,})\b/,              // long numeric-only ID
@@ -111,16 +116,19 @@ export async function schedulePickup(
 
     let confirmationNumber: string | undefined;
     for (const p of numberPatterns) {
-      const m = bodyText.match(p);
+      const m = visibleText.match(p);
+      console.log('[DEBUG] pattern', p, '-> match:', m?.[1]);
       if (m?.[1]?.trim()) { confirmationNumber = m[1].trim(); break; }
     }
+    console.log('[DEBUG] confirmationNumber:', confirmationNumber);
 
     // Grab a short readable snippet around the success text for the message
-    const snippet = bodyText
+    const snippet = visibleText
       .replace(/\s+/g, ' ')
-      .match(/.{0,300}(?:confirm|schedul|pickup|thank).{0,300}/i)?.[0]
+      .match(/.{0,200}(?:confirm|schedul|pickup|thank).{0,200}/i)?.[0]
       ?.trim()
       .slice(0, 400);
+    console.log('[DEBUG] snippet:', snippet);
 
     return {
       success: true,
