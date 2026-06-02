@@ -79,44 +79,39 @@ export async function schedulePickup(
     onProgress('Submitting pickup request…');
     await page.waitForLoadState('networkidle').catch(() => {});
     await page.getByRole('button', { name: 'Schedule a Pickup' }).click();
+    // Wait for Angular to process the submission before checking the result
+    await page.waitForTimeout(3000);
+    console.log('[DEBUG] After submit click — URL:', page.url());
 
     onProgress('Waiting for confirmation…');
-    try {
-      await page.waitForFunction(() => {
-        for (const el of document.querySelectorAll('h1, h2, h3, h4, p, div')) {
-          const text = (el.textContent ?? '').toLowerCase();
-          if (
-            text.includes('pickup scheduled') ||
-            text.includes('pickup confirmed') ||
-            text.includes('has been scheduled') ||
-            text.includes('thank you for')
-          ) return true;
-        }
-        return false;
-      }, { timeout: 30_000 });
-      console.log('[DEBUG] success waitForFunction resolved');
-    } catch {
-      // Dump page state to diagnose what text is actually on the confirmation page
-      const debugText = await page.evaluate(() => {
-        const clone = document.body.cloneNode(true) as HTMLElement;
-        clone.querySelectorAll('script, style, noscript').forEach(el => el.remove());
-        return clone.innerText ?? clone.textContent ?? '';
-      });
-      console.log('[DEBUG] waitForFunction timed out. Page URL:', page.url());
-      console.log('[DEBUG] Page visible text (first 3000):\n', debugText.slice(0, 3000));
-      // Try to grab a screenshot as base64 for logging
-      const shot = await page.screenshot({ type: 'png', fullPage: false }).catch(() => null);
-      if (shot) console.log('[DEBUG] screenshot base64:\n', shot.toString('base64').slice(0, 200), '...(truncated)');
-      throw new Error(`Confirmation page not detected. Page text: ${debugText.replace(/\s+/g, ' ').slice(0, 500)}`);
-    }
-
-    // Extract visible text only — exclude <script> and <style> content
-    const visibleText = await page.evaluate(() => {
+    const debugText = await page.evaluate(() => {
       const clone = document.body.cloneNode(true) as HTMLElement;
       clone.querySelectorAll('script, style, noscript').forEach(el => el.remove());
       return clone.innerText ?? clone.textContent ?? '';
     });
-    console.log('[DEBUG] visibleText (first 2000 chars):\n', visibleText.slice(0, 2000));
+    // Skip the nav header (first ~400 chars of every USPS page) and show what follows
+    const pageBody = debugText.replace(/\s+/g, ' ');
+    // Find where the actual page content starts (after the nav links)
+    const contentStart = pageBody.indexOf('SCHEDULE A PICKUP');
+    const relevantText = contentStart >= 0 ? pageBody.slice(contentStart, contentStart + 2000) : pageBody.slice(400, 2400);
+    console.log('[DEBUG] Page URL:', page.url());
+    console.log('[DEBUG] Relevant page text:\n', relevantText);
+
+    const lower = pageBody.toLowerCase();
+    const isSuccess =
+      lower.includes('pickup scheduled') ||
+      lower.includes('pickup confirmed') ||
+      lower.includes('has been scheduled') ||
+      lower.includes('thank you for') ||
+      lower.includes('your pickup') ||
+      lower.includes('confirmation');
+
+    if (!isSuccess) {
+      throw new Error(`URL: ${page.url()} | Page content: ${relevantText.slice(0, 1500)}`);
+    }
+
+    const visibleText = debugText;
+    console.log('[DEBUG] visibleText (first 2000):\n', visibleText.slice(0, 2000));
 
     // No spaces in confirmation number — prevents matching validation error text
     const numberPatterns = [
