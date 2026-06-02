@@ -98,12 +98,34 @@ export async function schedulePickup(
     }, { timeout: 30_000 });
 
     const bodyText = (await page.textContent('body')) ?? '';
-    const match = bodyText.match(/confirmation\s*(?:#|number|no\.?)?\s*:?\s*([A-Z0-9]{6,})/i);
+
+    // Try multiple patterns — USPS uses formats like "Confirmation Number: GXG123456789"
+    // or purely numeric IDs, or "Confirmation #: 123456"
+    const numberPatterns = [
+      /confirmation\s*(?:number|#|no\.?)\s*:?\s*([A-Z0-9][A-Z0-9\- ]{4,})/i,
+      /pickup\s*(?:number|id|#)\s*:?\s*([A-Z0-9][A-Z0-9\- ]{4,})/i,
+      /(?:number|#|no\.?)\s*:?\s*([A-Z]{1,4}[0-9]{6,})/i,
+      /\b([A-Z]{2,4}[0-9]{8,})\b/,   // e.g. GXG123456789
+      /\b([0-9]{9,})\b/,              // long numeric-only ID
+    ];
+
+    let confirmationNumber: string | undefined;
+    for (const p of numberPatterns) {
+      const m = bodyText.match(p);
+      if (m?.[1]?.trim()) { confirmationNumber = m[1].trim(); break; }
+    }
+
+    // Grab a short readable snippet around the success text for the message
+    const snippet = bodyText
+      .replace(/\s+/g, ' ')
+      .match(/.{0,300}(?:confirm|schedul|pickup|thank).{0,300}/i)?.[0]
+      ?.trim()
+      .slice(0, 400);
 
     return {
       success: true,
-      message: 'Your USPS pickup has been scheduled successfully.',
-      confirmationNumber: match?.[1],
+      message: snippet ?? 'Your USPS pickup has been scheduled successfully.',
+      confirmationNumber,
     };
   } catch (err) {
     return {
