@@ -81,21 +81,34 @@ export async function schedulePickup(
     await page.getByRole('button', { name: 'Schedule a Pickup' }).click();
 
     onProgress('Waiting for confirmation…');
-    // [class*="confirm"] matches back-modal-info-confirmation (hidden modal).
-    // Wait for visible success text in any heading or confirmation-number element.
-    await page.waitForFunction(() => {
-      for (const el of document.querySelectorAll('h1, h2, h3, h4, p, div')) {
-        const text = (el.textContent ?? '').toLowerCase();
-        if (
-          text.includes('pickup scheduled') ||
-          text.includes('pickup confirmed') ||
-          text.includes('has been scheduled') ||
-          text.includes('thank you for')
-        ) return true;
-      }
-      return false;
-    }, { timeout: 30_000 });
-    console.log('[DEBUG] success waitForFunction resolved');
+    try {
+      await page.waitForFunction(() => {
+        for (const el of document.querySelectorAll('h1, h2, h3, h4, p, div')) {
+          const text = (el.textContent ?? '').toLowerCase();
+          if (
+            text.includes('pickup scheduled') ||
+            text.includes('pickup confirmed') ||
+            text.includes('has been scheduled') ||
+            text.includes('thank you for')
+          ) return true;
+        }
+        return false;
+      }, { timeout: 30_000 });
+      console.log('[DEBUG] success waitForFunction resolved');
+    } catch {
+      // Dump page state to diagnose what text is actually on the confirmation page
+      const debugText = await page.evaluate(() => {
+        const clone = document.body.cloneNode(true) as HTMLElement;
+        clone.querySelectorAll('script, style, noscript').forEach(el => el.remove());
+        return clone.innerText ?? clone.textContent ?? '';
+      });
+      console.log('[DEBUG] waitForFunction timed out. Page URL:', page.url());
+      console.log('[DEBUG] Page visible text (first 3000):\n', debugText.slice(0, 3000));
+      // Try to grab a screenshot as base64 for logging
+      const shot = await page.screenshot({ type: 'png', fullPage: false }).catch(() => null);
+      if (shot) console.log('[DEBUG] screenshot base64:\n', shot.toString('base64').slice(0, 200), '...(truncated)');
+      throw new Error(`Confirmation page not detected. Page text: ${debugText.replace(/\s+/g, ' ').slice(0, 500)}`);
+    }
 
     // Extract visible text only — exclude <script> and <style> content
     const visibleText = await page.evaluate(() => {
